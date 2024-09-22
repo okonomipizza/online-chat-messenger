@@ -100,17 +100,28 @@ func (ds *DataStore) AddUsers(chatRoomID string, user User) error {
 	return nil
 }
 
-func (ds *DataStore) DeleteUsers(chatRommID string, user_id string) error {
+func (ds *DataStore) DeleteUsers(chatRommID string, user_id string) (string, error) {
 	ds.Mu.Lock()
 	ds.Mu.Unlock()
 	chatRoom, exists := ds.ChatRooms[chatRommID]
-	if exists {
-		delete(chatRoom.Users, user_id)
-	} else {
-		return errors.New("Designated ChatRoom does not exist")
+	if !exists {
+		return "", errors.New("Designated ChatRoom does not exist")
 	}
-	ds.ChatRooms[chatRommID] = chatRoom
-	return nil
+	user, exists := chatRoom.Users[user_id]
+	if !exists {
+		return "", errors.New("Designated user does not exist")
+	}
+	// userがhostユーザーか確認する
+	if user.IsHost {
+		delete(ds.ChatRooms, chatRommID)
+		fmt.Printf("Chat room 'id: %d, name: %d' removed", chatRommID, chatRoom.Name)
+	} else {
+		delete(chatRoom.Users, user_id)
+		ds.ChatRooms[chatRommID] = chatRoom
+		fmt.Printf("'id: %d, name: %d' is logged out from Chat room 'id: %d, name: %d'", user.Id, user.Name, chatRommID, chatRoom.Name)
+	}
+
+	return user.Name, nil
 }
 
 func (ds *DataStore) GetChatRoomByID(chatRoomID string) (ChatRoom, error) {

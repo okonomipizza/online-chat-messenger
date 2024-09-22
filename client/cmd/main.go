@@ -99,12 +99,12 @@ func main() {
 		UserID:     userID,
 		Message:    "",
 	}
-	blankProtocol, err := blankMessage.CreateChatRequest()
+	udpAddrSendRequestProtocol, err := blankMessage.CreateChatRequest(protocol.ChatOperationSendUDPAddr)
 	if err != nil {
 		fmt.Printf("Error creating chat request : %s\n", err)
 		return
 	}
-	_, err = conn.Write(blankProtocol)
+	_, err = conn.Write(udpAddrSendRequestProtocol)
 	if err != nil {
 		fmt.Printf("Error sending blank message via UDP: %s\n", err)
 	}
@@ -117,18 +117,27 @@ func main() {
 		scanner.Scan()
 		input := scanner.Text()
 
-		if strings.ToLower(input) == "exit" {
-			fmt.Println("Exit from Chat room")
-			break
-		}
-
 		message := protocol.ChatMessage{
 			ChatRoomID: chatRoomID,
 			UserID:     userID,
 			Message:    input,
 		}
 
-		protocol, err := message.CreateChatRequest()
+		if strings.ToLower(input) == "exit" {
+			protocol, err := message.CreateChatRequest(protocol.ChatOperationExit)
+			if err != nil {
+				fmt.Printf("Error creating chat request : %s\n", err)
+				continue
+			}
+			_, err = conn.Write(protocol)
+			if err != nil {
+				fmt.Printf("Error sending message via UDP: %s\n", err)
+			}
+			fmt.Println("Exit from Chat room")
+			break
+		}
+
+		protocol, err := message.CreateChatRequest(protocol.ChatOperationSendMessage)
 		if err != nil {
 			fmt.Printf("Error creating chat request : %s\n", err)
 			continue

@@ -7,17 +7,29 @@ import (
 
 // UDP接続に利用するプロトコル
 type ChatMessage struct {
-	ChatRoomID string `json:"room_id"`
-	UserID     string `json:"user_id"`
-	Message    string `json:"message"`
+	Operation  byte
+	ChatRoomID string
+	UserID     string
+	Message    string
 }
 
-func (chat ChatMessage) CreateChatRequest() ([]byte, error) {
+const (
+	ChatOperationSendMessage byte = iota
+	ChatOperationSendUDPAddr
+	ChatOperationExit
+)
+
+func (chat ChatMessage) CreateChatRequest(operation byte) ([]byte, error) {
 	buf := new(bytes.Buffer)
 
 	chatRoomIDBytes := []byte(chat.ChatRoomID)
 	userIDBytes := []byte(chat.UserID)
 	messageBytes := []byte(chat.Message)
+
+	// operation
+	if err := buf.WriteByte(operation); err != nil {
+		return nil, err
+	}
 
 	// chatroom size
 	if err := buf.WriteByte(byte(len(chatRoomIDBytes))); err != nil {

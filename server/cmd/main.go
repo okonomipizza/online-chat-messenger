@@ -182,40 +182,58 @@ func hostingUDPServer(port string, datastore *data.DataStore) {
 
 func handleChatMessages(udpConn *net.UDPConn, addr *net.UDPAddr, data []byte, length int, datastore *data.DataStore) {
 	fmt.Printf("Received %d bytes from %s: %s\n", length, addr.String(), string(data[:length]))
-	req, isBlankMessage, err := protocol.ParseChatRequest(data)
+	req, err := protocol.ParseChatRequest(data)
 	if err != nil {
 		fmt.Print("Received data invalid to read")
 		return
 	}
 
-	// chatroom に所属する送信者以外のユーザへデータを配信
-	chatroom, err := datastore.GetChatRoomByID(req.ChatRoomID)
-	isUserMember, err := datastore.IsUserMemberOfChatRoom(chatroom.Id, req.UserID)
-	if err != nil {
-		fmt.Println("Failed to confirm user token")
+	// exitがリクエストされたとき
+	if req.Operation == protocol.ChatOperationExit {
+		// ユーザーをチャットルームから外す
+		// ユーザーがチャットルームのホストならチャットルームごとdatastoreから削除
+		logoutUserName, err := datastore.DeleteUsers(req.ChatRoomID, req.UserID)
+		if err != nil {
+			fmt.Println(err)
+			return
+		}
+		// ユーザーが退出した場合は、それをサーバーから全員へ配信
+		message := fmt.Sprintf("%d is logged out", logoutUserName)
+		err = bradcastToClients(req.ChatRoomID, udpConn, message, datastore)
 		return
 	}
-	if isUserMember {
-		fmt.Printf("saving udp addr\n")
-		err = datastore.SaveUserUDPAddr(chatroom.Id, req.UserID, addr)
+
+	chatroom, err := datastore.GetChatRoomByID(req.ChatRoomID)
+
+	// udp addressが送られてきた時
+	if req.Operation == protocol.ChatOperationSendUDPAddr {
+		isUserMember, err := datastore.IsUserMemberOfChatRoom(chatroom.Id, req.UserID)
 		if err != nil {
-			fmt.Printf("Failed to save udp address of the user")
+			fmt.Println("Failed to confirm user token")
+			return
+		}
+		if isUserMember {
+			fmt.Printf("saving udp addr\n")
+			err = datastore.SaveUserUDPAddr(chatroom.Id, req.UserID, addr)
+			if err != nil {
+				fmt.Printf("Failed to save udp address of the user")
+				return
+			}
+		}
+	}
+
+	// メッセージの配信リクエストが送られてきた時
+	if req.Operation == protocol.ChatOperationSendMessage {
+		// client全員へメッセージをブロードキャスト
+		err = bradcastToClients(chatroom.Id, udpConn, req.Message, datastore)
+		if err != nil {
+			fmt.Printf("Failed to bradcast: %s\n", err)
 			return
 		}
 	}
 
-	fmt.Printf("Blank Message: \n", req.Message)
-	if isBlankMessage {
-		// 空のメッセージはudpへの切り替え時に送られてくるもので、クライアントのアドレスを保存するのみで配信する必要はない
-		return
-	}
+	return
 
-	// client全員へメッセージをブロードキャスト
-	err = bradcastToClients(chatroom.Id, udpConn, req.Message, datastore)
-	if err != nil {
-		fmt.Printf("Failed to bradcast: %s\n", err)
-		return
-	}
 }
 
 func bradcastToClients(chatRoomID string, udpConn *net.UDPConn, message string, datastore *data.DataStore) error {
