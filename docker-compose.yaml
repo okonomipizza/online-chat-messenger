@@ -1,0 +1,19 @@
+services:
+  server:
+    build:
+      context: ./server
+      dockerfile: Dockerfile
+    volumes:
+      - ./server:/server-app
+    ports:
+      - "8080:8080"
+    stdin_open: true
+    tty: true
+  client:
+    build:
+      context: ./client
+      dockerfile: Dockerfile
+    volumes:
+      - ./client:/client-app
+    stdin_open: true
+    tty: true
