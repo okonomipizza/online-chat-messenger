@@ -5,13 +5,20 @@ import (
 	"slices"
 )
 
-// UDP接続に利用するプロトコル
+// ChatMessageはクライアント・サーバー間でチャットメッセージをやり取りするためのカスタムプロトコル、"Chat Message Protocol"の構造体として定義されている
+// プロトコルの長さは最大 4096 byte
+// | operation: 1byte | chatroom_id_size: 1byte | user_id_size: 1byte | message_size: 1byte | payload: 4092 byte |
+// payload: chatroom_id(uuid) + user_id(uuid) + message
+// idには、uuidを採用しており、その長さは36 bytesとなるはず
+// したがってmessageが取りうる長さは 0 ~ 4020 byte
 type ChatMessage struct {
 	Operation  byte
 	ChatRoomID string
 	UserID     string
 	Message    string
 }
+
+const ChatMessageBytesMaxLen = 4020
 
 const (
 	ChatOperationSendMessage byte = iota

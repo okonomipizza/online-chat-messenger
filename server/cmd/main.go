@@ -168,7 +168,7 @@ func hostingUDPServer(port string, datastore *data.DataStore) {
 
 	for {
 		// クライアントからのメッセージを受信するバッファ
-		buffer := make([]byte, 4096)
+		buffer := make([]byte, protocol.ChatProtocolMaxLen)
 		n, addr, err := udpConn.ReadFromUDP(buffer)
 		if err != nil {
 			fmt.Println("Error receiving UDP packet:", err)
@@ -198,8 +198,8 @@ func handleChatMessages(udpConn *net.UDPConn, addr *net.UDPAddr, data []byte, le
 			return
 		}
 		// ユーザーが退出した場合は、それをサーバーから全員へ配信
-		message := fmt.Sprintf("%d is logged out", logoutUserName)
-		err = bradcastToClients(req.ChatRoomID, udpConn, message, datastore)
+		message := fmt.Sprintf("%s is logged out", logoutUserName)
+		err = bradcastToClients(req.ChatRoomID, "", udpConn, message, datastore)
 		return
 	}
 
@@ -225,7 +225,8 @@ func handleChatMessages(udpConn *net.UDPConn, addr *net.UDPAddr, data []byte, le
 	// メッセージの配信リクエストが送られてきた時
 	if req.Operation == protocol.ChatOperationSendMessage {
 		// client全員へメッセージをブロードキャスト
-		err = bradcastToClients(chatroom.Id, udpConn, req.Message, datastore)
+
+		err = bradcastToClients(chatroom.Id, req.UserID, udpConn, req.Message, datastore)
 		if err != nil {
 			fmt.Printf("Failed to bradcast: %s\n", err)
 			return
@@ -236,13 +237,24 @@ func handleChatMessages(udpConn *net.UDPConn, addr *net.UDPAddr, data []byte, le
 
 }
 
-func bradcastToClients(chatRoomID string, udpConn *net.UDPConn, message string, datastore *data.DataStore) error {
+func bradcastToClients(chatRoomID string, sender_id string, udpConn *net.UDPConn, message string, datastore *data.DataStore) error {
 	datastore.Mu.Lock()
 	defer datastore.Mu.Unlock()
 
 	chatRoom, exists := datastore.ChatRooms[chatRoomID]
 	if !exists {
-		return errors.New("No chat room")
+		// チャットルームが存在しないときはその旨をユーザーへ配信する
+		return errors.New("The chatroom does not exist")
+	}
+
+	// メンバーの退出を配信するときには、sender_idの引数が与えられない
+	// それ以外の時にはidが送られるのでそれをメッセージに含める
+	if sender_id != "" {
+		sender, exists := chatRoom.Users[sender_id]
+		if !exists {
+			return errors.New("Invalid User message")
+		}
+		message = fmt.Sprintf("%s: %s", sender.Name, message)
 	}
 
 	for _, user := range chatRoom.Users {

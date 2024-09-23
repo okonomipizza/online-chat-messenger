@@ -54,7 +54,6 @@ func (req ChatRoomRequest) payload() ([]byte, error) {
 		fmt.Println("JSON変換エラー", err)
 		return nil, errors.New("Failed to generate json data")
 	}
-	fmt.Println("JSON created:", string(jsonData))
 
 	return jsonData, nil
 }

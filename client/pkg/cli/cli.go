@@ -15,7 +15,6 @@ import (
 func GetUserInputString(target string, min int, max int) string {
 	var input string
 	for {
-
 		fmt.Printf("Input %s: ", target)
 		scanner := bufio.NewScanner(os.Stdin)
 		scanner.Buffer(make([]byte, 64*1024), 100001)
@@ -33,7 +32,6 @@ func GetUserInputString(target string, min int, max int) string {
 			fmt.Println("Username you typed is too long")
 			continue
 		}
-
 		break
 	}
 	return input
@@ -100,7 +98,7 @@ func GenerateRoomRequest() ([]byte, error) {
 	if choice == 2 {
 		request, err := CreateJoinRoomRequest()
 		if err != nil {
-			return nil, err
+			return nil, errors.New("Room ID you typed does not exists on the server")
 		}
 		return request, nil
 	}
@@ -162,8 +160,6 @@ func GetRoomNameByID(roomID string) (string, bool, error) {
 
 	// サーバーの処理結果を受信
 	response, err := protocol.ReceiveResponse(conn)
-	fmt.Println("Room name from server")
-	fmt.Printf("Response: %+v\n", response)
 	if err != nil {
 		return "", false, err
 	}
