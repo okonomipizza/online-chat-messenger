@@ -17,6 +17,10 @@ func handleChatRoomRequest(conn net.Conn, dataStore *data.DataStore) {
 
 	// メッセージを受信したことをクライアントへ知らせる
 	ackResponse, err := protocol.AckResponse()
+	if err != nil {
+		fmt.Println("Failed to create response to client")
+	}
+
 	_, err = conn.Write(ackResponse)
 	if err != nil {
 		fmt.Println("Failed to send ack response to client")
@@ -48,7 +52,7 @@ func handleChatRoomRequest(conn net.Conn, dataStore *data.DataStore) {
 			response, _ := protocol.InternalServerErrorResponse()
 			_, err = conn.Write(response)
 			if err != nil {
-				fmt.Println("Failed to send response to client")
+				fmt.Println("Failed to send creating chatroom response to client")
 				return
 			}
 			return
@@ -59,21 +63,21 @@ func handleChatRoomRequest(conn net.Conn, dataStore *data.DataStore) {
 		// ChatRoomのIDによるChatRoom検索がリクエストされた場合
 	} else if request.Operation == protocol.OperationSerchChatRoomByID {
 		// リクエストに含まれるidに該当するチャットルームがあるか検索
-
 		chatroom, exists := dataStore.ChatRooms[request.RoomID]
 		if exists {
 			response, _ := protocol.CreateExistingChatroomResponse(chatroom)
 			_, err = conn.Write(response)
 			if err != nil {
-				fmt.Println("Failed to send response to client")
+				fmt.Println("Failed to send chatroom name response to client")
 				return
 			}
 			return
 		} else {
 			response, _ := protocol.InvalidRequestResponse("No room exist")
+
 			_, err = conn.Write(response)
 			if err != nil {
-				fmt.Println("Failed to send response to client")
+				fmt.Println("Failed to send invalid response to client")
 				return
 			}
 			return
@@ -95,6 +99,11 @@ func handleChatRoomRequest(conn net.Conn, dataStore *data.DataStore) {
 			// リクエストされたパスワードが間違っていた時
 			println("Invalid password requested")
 			// 応答
+			response, _ := protocol.InvalidRequestResponse("Invalid password")
+			_, err = conn.Write(response)
+			if err != nil {
+				fmt.Println("Failed to send invalid response to client")
+			}
 			return
 		}
 
@@ -149,7 +158,7 @@ func SendNewRoomResponse(conn net.Conn, request protocol.ChatRoomRequest, dataSt
 	return nil
 }
 
-func hostingUDPServer(port string, datastore *data.DataStore) {
+func hostingChatServer(port string, datastore *data.DataStore) {
 	udpAddr, err := net.ResolveUDPAddr("udp", ":"+port)
 	if err != nil {
 		fmt.Println("Error resolving UDP address:", err)
@@ -199,26 +208,39 @@ func handleChatMessages(udpConn *net.UDPConn, addr *net.UDPAddr, data []byte, le
 		}
 		// ユーザーが退出した場合は、それをサーバーから全員へ配信
 		message := fmt.Sprintf("%s is logged out", logoutUserName)
-		err = bradcastToClients(req.ChatRoomID, "", udpConn, message, datastore)
+		err = broadcastToClients(req.ChatRoomID, "", udpConn, message, datastore)
+		if err != nil {
+			fmt.Println("Error occured while broadcasting")
+		}
 		return
 	}
 
 	chatroom, err := datastore.GetChatRoomByID(req.ChatRoomID)
+	if err != nil {
+		println(err)
+	}
 
 	// udp addressが送られてきた時
 	if req.Operation == protocol.ChatOperationSendUDPAddr {
-		isUserMember, err := datastore.IsUserMemberOfChatRoom(chatroom.Id, req.UserID)
+
+		isUserMember, user, err := datastore.IsUserMemberOfChatRoom(chatroom.Id, req.UserID)
 		if err != nil {
 			fmt.Println("Failed to confirm user token")
 			return
 		}
 		if isUserMember {
-			fmt.Printf("saving udp addr\n")
+			fmt.Printf("Saving UDP address\n")
 			err = datastore.SaveUserUDPAddr(chatroom.Id, req.UserID, addr)
 			if err != nil {
 				fmt.Printf("Failed to save udp address of the user")
 				return
 			}
+			message := fmt.Sprintf("%s is logged in", user.Name)
+			err = broadcastToClients(chatroom.Id, user.Id, udpConn, message, datastore)
+			if err != nil {
+				fmt.Println("Error occured while broadcasting: ", err)
+			}
+			return
 		}
 	}
 
@@ -226,25 +248,23 @@ func handleChatMessages(udpConn *net.UDPConn, addr *net.UDPAddr, data []byte, le
 	if req.Operation == protocol.ChatOperationSendMessage {
 		// client全員へメッセージをブロードキャスト
 
-		err = bradcastToClients(chatroom.Id, req.UserID, udpConn, req.Message, datastore)
+		err = broadcastToClients(chatroom.Id, req.UserID, udpConn, req.Message, datastore)
 		if err != nil {
 			fmt.Printf("Failed to bradcast: %s\n", err)
 			return
 		}
 	}
-
-	return
-
 }
 
-func bradcastToClients(chatRoomID string, sender_id string, udpConn *net.UDPConn, message string, datastore *data.DataStore) error {
+// broadcastToClients はチャットルーム内の全員へチャットメッセージを配信する
+func broadcastToClients(chatRoomID string, sender_id string, udpConn *net.UDPConn, message string, datastore *data.DataStore) error {
 	datastore.Mu.Lock()
 	defer datastore.Mu.Unlock()
 
 	chatRoom, exists := datastore.ChatRooms[chatRoomID]
 	if !exists {
 		// チャットルームが存在しないときはその旨をユーザーへ配信する
-		return errors.New("The chatroom does not exist")
+		return errors.New("the chatroom does not exist")
 	}
 
 	// メンバーの退出を配信するときには、sender_idの引数が与えられない
@@ -252,18 +272,21 @@ func bradcastToClients(chatRoomID string, sender_id string, udpConn *net.UDPConn
 	if sender_id != "" {
 		sender, exists := chatRoom.Users[sender_id]
 		if !exists {
-			return errors.New("Invalid User message")
+			return errors.New("invalid User message")
 		}
 		message = fmt.Sprintf("%s: %s", sender.Name, message)
 	}
 
 	for _, user := range chatRoom.Users {
 		// ユーザーのアドレスにメッセージを送信
+		// 配信メッセージの送り主には配信しない
+		if user.Id == sender_id {
+			continue
+		}
 		_, err := udpConn.WriteToUDP([]byte(message), user.Addr)
 		if err != nil {
 			fmt.Printf("Error sending message to user %s: %v\n", user.Name, err)
 			continue
-
 		}
 		fmt.Printf("Message sent to user %s (%s)\n", user.Name, user.Addr.String())
 	}
@@ -271,12 +294,13 @@ func bradcastToClients(chatRoomID string, sender_id string, udpConn *net.UDPConn
 }
 
 func main() {
+	// 稼働しているチャットルームに関する情報はここに保存
 	dataStore := &data.DataStore{
 		ChatRooms: make(map[string]data.ChatRoom),
 	}
 
 	// UDP サーバーを起動
-	go hostingUDPServer("9090", dataStore)
+	go hostingChatServer("9090", dataStore)
 
 	// TCPサーバーをポート8080でリッスン開始
 	listener, err := net.Listen("tcp", ":8080")

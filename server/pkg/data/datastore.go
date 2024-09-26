@@ -45,19 +45,20 @@ func (ds *DataStore) DeleteChatRooms(id string) {
 	ds.Mu.Unlock()
 }
 
-func (ds *DataStore) IsUserMemberOfChatRoom(chatRoomID string, userID string) (bool, error) {
+// IsUserMemberOfChatRoom はそのユーザーが与えられた指定されたチャットルームに存在するかと、存在する場合はユーザ名を返す
+func (ds *DataStore) IsUserMemberOfChatRoom(chatRoomID string, userID string) (bool, User, error) {
 	ds.Mu.Lock()
 	defer ds.Mu.Unlock()
 	chatRoom, exists := ds.ChatRooms[chatRoomID]
 	if !exists {
-		return false, errors.New("Designated ChatRoom does not exist")
+		return false, User{}, errors.New("designated ChatRoom does not exist")
 	}
 
-	_, exists = chatRoom.Users[userID]
+	user, exists := chatRoom.Users[userID]
 	if !exists {
-		return false, nil
+		return false, User{}, nil
 	}
-	return true, nil
+	return true, user, nil
 }
 
 func (ds *DataStore) SaveUserUDPAddr(chatRoomID string, userID string, addr *net.UDPAddr) error {
@@ -65,7 +66,7 @@ func (ds *DataStore) SaveUserUDPAddr(chatRoomID string, userID string, addr *net
 	defer ds.Mu.Unlock()
 	chatRoom, exists := ds.ChatRooms[chatRoomID]
 	if !exists {
-		return errors.New("Designated ChatRoom does not exist")
+		return errors.New("designated ChatRoom does not exist")
 	}
 	user, exists := chatRoom.Users[userID]
 	if !exists {
@@ -85,7 +86,7 @@ func (ds *DataStore) AddUsers(chatRoomID string, user User) error {
 	if exists {
 		chatRoom.Users[user.Id] = user
 	} else {
-		return errors.New("Designated ChatRoom does not exist")
+		return errors.New("designated ChatRoom does not exist")
 	}
 	ds.ChatRooms[chatRoomID] = chatRoom
 
@@ -102,23 +103,23 @@ func (ds *DataStore) AddUsers(chatRoomID string, user User) error {
 
 func (ds *DataStore) DeleteUsers(chatRommID string, user_id string) (string, error) {
 	ds.Mu.Lock()
-	ds.Mu.Unlock()
+	defer ds.Mu.Unlock()
 	chatRoom, exists := ds.ChatRooms[chatRommID]
 	if !exists {
-		return "", errors.New("Designated ChatRoom does not exist")
+		return "", errors.New("designated ChatRoom does not exist")
 	}
 	user, exists := chatRoom.Users[user_id]
 	if !exists {
-		return "", errors.New("Designated user does not exist")
+		return "", errors.New("designated user does not exist")
 	}
 	// userがhostユーザーか確認する
 	if user.IsHost {
 		delete(ds.ChatRooms, chatRommID)
-		fmt.Printf("Chat room 'id: %d, name: %d' removed", chatRommID, chatRoom.Name)
+		fmt.Printf("Chat room 'id: %s, name: %s' removed", chatRommID, chatRoom.Name)
 	} else {
 		delete(chatRoom.Users, user_id)
 		ds.ChatRooms[chatRommID] = chatRoom
-		fmt.Printf("'id: %d, name: %d' is logged out from Chat room 'id: %d, name: %d'", user.Id, user.Name, chatRommID, chatRoom.Name)
+		fmt.Printf("'id: %s, name: %s' is logged out from Chat room 'id: %s, name: %s'", user.Id, user.Name, chatRommID, chatRoom.Name)
 	}
 
 	return user.Name, nil
@@ -126,25 +127,25 @@ func (ds *DataStore) DeleteUsers(chatRommID string, user_id string) (string, err
 
 func (ds *DataStore) GetChatRoomByID(chatRoomID string) (ChatRoom, error) {
 	ds.Mu.Lock()
-	ds.Mu.Unlock()
+	defer ds.Mu.Unlock()
 	chatRoom, exists := ds.ChatRooms[chatRoomID]
 	if exists {
 		return chatRoom, nil
 	}
-	return ChatRoom{}, errors.New("Designated ChatRoom does not exist")
+	return ChatRoom{}, errors.New("designated ChatRoom does not exist")
 }
 
 func (ds *DataStore) ConfirmPassword(chatRoomID string, password_input string) (bool, error) {
 	ds.Mu.Lock()
-	ds.Mu.Unlock()
+	defer ds.Mu.Unlock()
 	chatRoom, exists := ds.ChatRooms[chatRoomID]
 	if exists {
 		savedPassword := chatRoom.Password
 		if savedPassword == "" || savedPassword == password_input {
 			return true, nil
 		} else {
-			return false, errors.New("Invalid password")
+			return false, errors.New("invalid password")
 		}
 	}
-	return false, errors.New("Designated Chatroom does not exist")
+	return false, errors.New("designated Chatroom does not exist")
 }

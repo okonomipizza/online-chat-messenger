@@ -12,6 +12,9 @@ import (
 	"github.com/okonomipizza/chat-client/pkg/protocol"
 )
 
+// GetUserInputString は、ユーザーに対して target に対応した文字列の入力を求める
+// target は、何を入力して欲しいかを指定するためのもので、入力を受け付ける前に標準出力へプリントされる
+// 取得する文字列には、それをバイト列に変換した時の最小サイズと最大サイズを指定する必要がある
 func GetUserInputString(target string, min int, max int) string {
 	var input string
 	for {
@@ -24,11 +27,11 @@ func GetUserInputString(target string, min int, max int) string {
 		inputBytes := []byte(input)
 		inputLen := len(inputBytes)
 
-		if inputLen < 1 {
+		if inputLen < min {
 			fmt.Println("Input some string")
 			continue
 		}
-		if inputLen > 64 {
+		if inputLen > max {
 			fmt.Println("Username you typed is too long")
 			continue
 		}
@@ -37,6 +40,7 @@ func GetUserInputString(target string, min int, max int) string {
 	return input
 }
 
+// GetUserChoiceBool はユーザーに yes or no で答えられる質問を問いかけ、その回答を得る
 func GetUserChoiceBool(question string) bool {
 	reader := bufio.NewReader(os.Stdin)
 	for {
@@ -57,11 +61,20 @@ func GetUserChoiceBool(question string) bool {
 	}
 }
 
-// GenerateRoomRequestはユーザーに新しいチャットルームの作成か、既存のチャットルームへの参加のどちらを行うかを選択させる
-// ユーザーの選択に応じて、適切なリクエストプロトコルのバイト列をインタラクティブに生成する
-func GenerateRoomRequest() ([]byte, error) {
+// GetUserActionChoiceで返される値
+const (
+	CreateNewChatRoom = 1
+	JoinChatRoom      = 2
+)
+
+// GetUserActionChoice はユーザーに次の２つのどちらかの行動を選択させる
+// 1) 新しいチャットルームの作成
+// 2) 既存のチャットルームへの参加
+func GetUserActionChoice() int {
 	reader := bufio.NewReader(os.Stdin)
 	var choice int
+
+	// ユーザーへ選択肢を提示して取得
 	for {
 		fmt.Println("Choose an option:")
 		fmt.Println("1. Create a new chat room")
@@ -84,26 +97,32 @@ func GenerateRoomRequest() ([]byte, error) {
 			fmt.Println("Invalid input. Please enter 1 or 2.")
 		}
 	}
+	return choice
+}
 
-	// New Chat Roomリクエストを作成
-	if choice == 1 {
-		println("New room creation start")
+// ユーザーの選択に対応したリクエストプロトコルを生成する
+func GenerateRoomRequest(choice int) ([]byte, error) {
+	// 選択に応じたリクエストを作成
+	// 1) 新しいチャットルームの作成
+	if choice == CreateNewChatRoom {
 		request, err := CreateNewRoomRequest()
 		if err != nil {
 			return nil, err
 		}
 		return request, nil
 	}
-	// Chat Room への参加リクエストを作成
-	if choice == 2 {
+	// 2) 既存のチャットルームへの参加
+	if choice == JoinChatRoom {
 		request, err := CreateJoinRoomRequest()
 		if err != nil {
-			return nil, errors.New("Room ID you typed does not exists on the server")
+			// CreateJoinRoomRequestの中で、ユーザーが指定した Chatroomが存在しない場合がある
+			return nil, errors.New("room ID you typed does not exists on the server")
 		}
 		return request, nil
 	}
 
-	return nil, errors.New("Could not generate request protocol succesfully")
+	// 想定外
+	return nil, errors.New("could not generate request protocol succesfully")
 }
 
 func CreateNewRoomRequest() ([]byte, error) {
@@ -130,27 +149,34 @@ func CreateNewRoomRequest() ([]byte, error) {
 	return requestProtocol, nil
 }
 
-// GetRoomNameはサーバーにRoomIDを渡して、対応するChat Roomが存在すればそのChat room の名前を取得する
-// また、指定されたチャットルームにログインパスワードが設定されているか否かもbool値で返す
+// GetRoomNameはサーバーにRoomIDを渡して、対応するチャットルームが存在すればその名前を返す
+// また、指定されたチャットルームにログインパスワードが設定されているか否かをbool値で返す
 func GetRoomNameByID(roomID string) (string, bool, error) {
-	// 問い合わせ用のconnを用意する
+	// 問い合わせ用の接続を用意する
 	conn, err := net.Dial("tcp", "server:8080")
 	if err != nil {
-		fmt.Println("Error connecting to server:", err)
-		return "", false, errors.New("Server connection refused")
+		fmt.Println("Error connecting to server")
+		os.Exit(0)
 	}
 	defer conn.Close()
 
+	// 検索したいチャットルームのIDと操作をリクエストに含める
 	request := protocol.ChatRoomRequest{
 		RoomID:    roomID,
 		Operation: protocol.OperationSerchChatRoomByID,
 		State:     protocol.StateRequest,
 	}
+
+	// リクエストを作成して送信
 	requestProtocol, err := request.CreateRequestProtocol()
 	if err != nil {
 		return "", false, err
 	}
-	conn.Write(requestProtocol)
+
+	_, err = conn.Write(requestProtocol)
+	if err != nil {
+		fmt.Println("Failed to send request for room searching")
+	}
 
 	// ack responseを受信
 	err = protocol.ReceiveAckResponse(conn)
@@ -163,32 +189,42 @@ func GetRoomNameByID(roomID string) (string, bool, error) {
 	if err != nil {
 		return "", false, err
 	}
-	roomname := response.RoomName
-	if err != nil {
-		return "", false, err
+
+	// チャットルームが存在しないときはアプリを終了
+	if response.State == protocol.StateInvalid {
+		fmt.Println("Designated Chatroom does not exist")
+		os.Exit(0)
 	}
 
+	roomname := response.RoomName
 	if response.RoomPassword == "" {
+		// パスワードがチャットルームに設定されていない場合
 		return roomname, false, nil
 	} else {
+		// パスワードがチャットルームに設定されている場合
 		return roomname, true, nil
 	}
 }
 
+// CreateJoinRoomRequest はユーザーの入力情報に基づいてチャットルームへの参加リクエストを作成する
+// チャットルームが存在しない場合はそこで処理を終了する
 func CreateJoinRoomRequest() ([]byte, error) {
 	roomID := GetUserInputString("room id", 1, 64)
 	roomName, isPasswordNeeded, err := GetRoomNameByID(roomID)
 	if err != nil {
-		return nil, err
-	}
-
-	// アクセスしようとしているroomの名前が正しいか
-	question := fmt.Sprintf("Join the Room '%s'?", roomName)
-	isContinue := GetUserChoiceBool(question)
-	if !isContinue {
+		fmt.Println("Some error occured: ", err)
 		os.Exit(0)
 	}
 
+	// アクセスしようとしているroomの名前が正しいかユーザーに聞いて間違っていればアプリを終了
+	question := fmt.Sprintf("Join the Room '%s'?", roomName)
+	choiceForContinue := GetUserChoiceBool(question)
+	if !choiceForContinue {
+		fmt.Println("Room joining was canceled. The application will now exit")
+		os.Exit(0)
+	}
+
+	// チャットルーム内で使用するハンドルネームを取得
 	userName := GetUserInputString("user name", 1, 32)
 	request := protocol.ChatRoomRequest{
 		RoomID:    roomID,
@@ -198,12 +234,14 @@ func CreateJoinRoomRequest() ([]byte, error) {
 		State:     protocol.StateRequest,
 	}
 
-	// チャットルームにパスワードが設定されている場合は、パスワードの入力を受け付ける
+	// チャットルームにパスワードが設定されている場合
+	// ユーザーにパスワードの入力を求める
 	if isPasswordNeeded {
-		password := GetUserInputString("password", 1, 32)
-		request.RoomPassword = password
+		passwordInput := GetUserInputString("password", 1, 32)
+		request.RoomPassword = passwordInput
 	}
 
+	// 取得した入力を元にリクエストを作成
 	requestProtocol, err := request.CreateRequestProtocol()
 	if err != nil {
 		return nil, err

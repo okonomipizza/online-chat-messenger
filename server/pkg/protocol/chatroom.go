@@ -75,17 +75,20 @@ func InvalidRequestResponse(message string) ([]byte, error) {
 		return nil, err
 	}
 	// operation
-	if err := buf.WriteByte(0); err != nil {
+	if err := buf.WriteByte(OperationCreateChatRoom); err != nil {
 		return nil, err
 	}
 	// state 4は無効なリクエストが送信されたことを示す
-	if err := buf.WriteByte(4); err != nil {
+	if err := buf.WriteByte(StateInvalid); err != nil {
 		return nil, err
 	}
 	// payload
 	if _, err := buf.Write(payload); err != nil {
 		return nil, err
 	}
+
+	fmt.Println("invalid bytes: ", buf.Bytes())
+	fmt.Println(len(buf.Bytes()))
 
 	return buf.Bytes(), nil
 }
@@ -128,7 +131,7 @@ func CreateExistingChatroomResponse(chatroom data.ChatRoom) ([]byte, error) {
 	jsonData, err := json.Marshal(data)
 	if err != nil {
 		fmt.Println("JSON変換エラー", err)
-		return nil, errors.New("Failed to generate json data")
+		return nil, errors.New("failed to generate json data")
 	}
 	fmt.Println("JSON created:", string(jsonData))
 
@@ -168,7 +171,7 @@ func CreateChatRoomJoinResponse(user data.User, chatRoom data.ChatRoom) ([]byte,
 	jsonData, err := json.Marshal(data)
 	if err != nil {
 		fmt.Println("JSON変換エラー", err)
-		return nil, errors.New("Failed to generate json data")
+		return nil, errors.New("failed to generate json data")
 	}
 	fmt.Println("JSON created:", string(jsonData))
 
@@ -210,7 +213,7 @@ func CreateNewChatRoomResponse(user data.User, chatroom data.ChatRoom) ([]byte, 
 	jsonData, err := json.Marshal(data)
 	if err != nil {
 		fmt.Println("JSON変換エラー", err)
-		return nil, errors.New("Failed to generate json data")
+		return nil, errors.New("failed to generate json data")
 	}
 	fmt.Println("JSON created:", string(jsonData))
 
@@ -261,7 +264,7 @@ func ParseChatRoomRequest(buf []byte) (ChatRoomRequest, error) {
 
 	err := json.Unmarshal(payload, &request)
 	if err != nil {
-		return ChatRoomRequest{}, errors.New("Invalid payload for request")
+		return ChatRoomRequest{}, errors.New("invalid payload for request")
 	}
 
 	return request, nil

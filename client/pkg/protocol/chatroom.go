@@ -8,8 +8,6 @@ import (
 	"net"
 )
 
-const payloadMaxLen = 144
-
 // ChatRoomRequestはユーザーの入力から作成される
 // operation = 0: chat roomの作成をリクエストする時に使用
 // operation = 1: chat roomへの参加をリクエストする時に使用
@@ -52,7 +50,7 @@ func (req ChatRoomRequest) payload() ([]byte, error) {
 	jsonData, err := json.Marshal(data)
 	if err != nil {
 		fmt.Println("JSON変換エラー", err)
-		return nil, errors.New("Failed to generate json data")
+		return nil, errors.New("failed to generate json data")
 	}
 
 	return jsonData, nil
@@ -95,14 +93,14 @@ func ReceiveAckResponse(conn net.Conn) error {
 	count, err := conn.Read(readBuf)
 	if count != 3 || err != nil {
 		fmt.Println("Error reading from connection:", err)
-		return errors.New("Failed to load server response")
+		return errors.New("failed to load server response")
 	}
 
 	if readBuf[2] == StateAckResponse {
 		return nil
 	}
 
-	return errors.New("Internal server error")
+	return errors.New("internal server error")
 }
 
 func ReceiveResponse(conn net.Conn) (ChatRoomRequest, error) {
@@ -113,14 +111,16 @@ func ReceiveResponse(conn net.Conn) (ChatRoomRequest, error) {
 		return ChatRoomRequest{}, err
 	}
 
-	if readBuf[2] == StateSuccess {
+	state := readBuf[2]
+
+	if state == StateSuccess || state == StateInvalid {
 		response, err := ParseChatRoomResponse(readBuf)
 		if err != nil {
 			return ChatRoomRequest{}, err
 		}
 		return response, nil
 	} else {
-		return ChatRoomRequest{}, errors.New("Some errors occured")
+		return ChatRoomRequest{}, errors.New("some errors occured")
 	}
 }
 
@@ -140,15 +140,18 @@ func ParseChatRoomResponse(buf []byte) (ChatRoomRequest, error) {
 		return ChatRoomRequest{}, errors.New("recieved packet is not complete")
 	}
 
-	request := ChatRoomRequest{
+	response := ChatRoomRequest{
 		Operation: operation,
 		State:     state,
 	}
 
-	err := json.Unmarshal(payload, &request)
-	if err != nil {
-		return ChatRoomRequest{}, errors.New("Invalid payload for request")
+	// state が成功の時のみpayloadを読み込む
+	if state == StateSuccess {
+		err := json.Unmarshal(payload, &response)
+		if err != nil {
+			return ChatRoomRequest{}, errors.New("invalid payload for request")
+		}
 	}
 
-	return request, nil
+	return response, nil
 }
